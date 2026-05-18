@@ -63,10 +63,10 @@ void rtpSendData(RTPMuxContext *ctx, const uint8_t *buf, int len, int mark)
 
                 // ADICIONAR ESTA LÓGICA DE SEGURANÇA:
                 // Exemplo de XOR simples (em produção, use AES-CTR via libsrtp)
-                uint8_t key = 0xAB; // Chave secreta de exemplo
-                for(int i = 0; i < len; i++) {
-                    pos[12 + i] ^= key; // Criptografia básica do payload
-                }
+                // uint8_t key = 0xAB; // Chave secreta de exemplo
+                // for(int i = 0; i < len; i++) {
+                //     pos[12 + i] ^= key; // Criptografia básica do payload
+                // }
 
     res = udpSend(gUdpContext, ctx->cache, (uint32_t)(len + 12));
     printf("\nrtpSendData cache [%d]: ", res);
