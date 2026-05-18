@@ -1,190 +1,95 @@
-# RTP 
-Implementation of a RTP server that sends video stream (H.264/HEVC) using the Real-time Transport Protocol(RTP) based on Linux/MacOS. 
+# 🎬 Servidor de Streaming RTP (H.264) em C
 
-一个基于Linux/MacOS平台的可以发送携带H.264/HEVC媒体类型的RTP视频流的示例程序。
+Este projeto é um **Servidor RTP (Real-Time Transport Protocol)** leve e de alto desempenho escrito em **C** para sistemas Linux/macOS. Ele lê um fluxo de vídeo bruto **H.264** (`.h264`) de um arquivo local, fatiando-o dinamicamente em unidades NAL (NALUs), organizando-as em pacotes RTP válidos e transmitindo-as via UDP para um reprodutor de vídeo (*client*) na rede local.
 
-## RTP-Server
-这个示例程序是参考ffmpeg的代码，实现了读取一个Sample.h264裸流文件，（打算以后支持HEVC/H.265所以文件名有HEVC），通过ffmpeg内置的函数查找NAL单元起始码，从而获取一个完整的NALU。根据NALU长度选择RTP打包类型，然后再组装RTP头部信息，最终发送到指定IP和端口，本例发送到本机1234端口。
+---
 
-![image](RTP-frame-zh.png)
+## 📌 O que o código faz?
 
-### Receive & Play Video as RTP Client
+O servidor simula uma transmissão de streaming ao vivo de 25 FPS através do seguinte fluxo:
 
-**1 .FFmpeg/ffplay**
+1. **Leitura Íntegra**: Carrega o arquivo de vídeo H.264 completo para a memória (`readFile`), garantindo que nenhum frame de vídeo seja cortado de forma arbitrária nas bordas de blocos.
+2. **Parsing de H.264 (NALUs)**: Varre o arquivo localizando os *start codes* do H.264 (`0x000001` ou `0x00000001`) usando funções em `AVC.c` para segmentar o fluxo em unidades de dados independentes (NALUs).
+3. **Empacotamento RTP**: Monta os cabeçalhos RTP correspondentes (Versão, Seq, Timestamp, SSRC) em `RTPEnc.c` e escolhe o melhor tipo de encapsulamento de acordo com o tamanho do pacote:
+   * **Single NAL Unit**: Para pacotes menores ou iguais a 1400 bytes.
+   * **Aggregation Packets (STAP-A)**: Junta múltiplas NALUs pequenas em um único pacote RTP.
+   * **Fragmentation Units (FU-A)**: Divide NALUs gigantes (como I-Frames) maiores de 1400 bytes em pequenos fragmentos de rede para respeitar a MTU.
+4. **Envio via Socket UDP**: Transmite os pacotes estruturados sobre UDP para o endereço e porta configurados (por padrão, `127.0.0.1:1234`), utilizando QoS/DSCP para priorização de tráfego de mídia em rede local.
 
-play rtp video stream.
-```sh
+---
+
+## 📂 Estrutura do Projeto
+
+* 📄 **`main.c`**: Ponto de entrada do programa. Configura os parâmetros de rede, carrega o arquivo de vídeo e inicia o fluxo de transmissão.
+* 📄 **`RTPEnc.c` & `RTPEnc.h`**: Lógica central de montagem de pacotes RTP (criação de cabeçalhos, fracionamento FU-A e agregação STAP-A).
+* 📄 **`AVC.c` & `AVC.h`**: Analisador de fluxo de vídeo (H.264), responsável por localizar os bytes de sincronia (*start codes*).
+* 📄 **`Network.c` & `Network.h`**: Camada de rede. Inicializa os sockets UDP e lida com o envio real de pacotes com suporte a QoS.
+* 📄 **`Utils.c` & `Utils.h`**: Utilitários auxiliares de leitura de arquivos e serialização de dados de 16/32 bits.
+* 📄 **`play.sdp`**: Arquivo de Descrição de Sessão (SDP), utilizado por players externos para configurar e escutar o fluxo de vídeo.
+* 📄 **`Sample.h264`**: Vídeo bruto de exemplo utilizado para streaming.
+
+---
+
+## 🛠️ Pré-requisitos
+
+Antes de começar, garanta que você tem instalado no seu sistema:
+
+* **Compilador C** (como `gcc` ou `clang`) e utilitário `make` para compilação.
+* **FFmpeg / ffplay** (ou player VLC) para reproduzir o streaming em tempo real.
+  * No Ubuntu/Debian: `sudo apt install build-essential ffmpeg vlc`
+
+---
+
+## 🚀 Como Rodar o Código (Passo a Passo)
+
+Siga os três passos simples abaixo para compilar e iniciar o streaming local:
+
+### Passo 1: Compilar o Servidor
+Abra o seu terminal no diretório do servidor e compile utilizando o `Makefile`:
+
+```bash
+cd RTP-Server
+make clean && make
+```
+Isso criará o arquivo executável chamado `RTPServer`.
+
+---
+
+### Passo 2: Iniciar o Player de Vídeo
+O player precisa estar aberto e escutando antes do servidor enviar os dados, ou logo após iniciá-lo. Escolha **uma** das duas opções abaixo:
+
+#### Opção A: Usando o `ffplay` (Via Terminal - Altamente recomendado)
+Abra um **novo terminal** na pasta raiz do projeto (onde está o arquivo `play.sdp`) e execute:
+
+```bash
+cd /home/luis/RTP
 ffplay -protocol_whitelist "file,rtp,udp" play.sdp
 ```
+> **Nota**: O parâmetro `-protocol_whitelist` é obrigatório para autorizar o ffplay a usar conexões locais de rede definidas no arquivo `.sdp`.
 
-send video file as RTP server
+#### Opção B: Usando o VLC Media Player
+1. Abra o **VLC**.
+2. Vá em **Mídia > Abrir Arquivo...** (ou simplesmente arraste o arquivo).
+3. Selecione o arquivo `play.sdp` localizado na raiz do projeto `/home/luis/RTP/play.sdp`.
 
-```sh
-ffmpeg -re -i Sample.h264 -vcodec copy -f rtp rtp://127.0.0.1:1234 > play.sdp
+---
+
+### Passo 3: Iniciar a Transmissão do Servidor
+No terminal onde você compilou o servidor (dentro da pasta `RTP-Server`), execute o binário:
+
+```bash
+./RTPServer
 ```
 
+Você verá a saída do console listando o tamanho de cada pacote NAL e RTP enviado. O player (`ffplay` ou `VLC`) começará a renderizar e reproduzir o vídeo de amostra instantaneamente!
 
-**2. VLC**
+---
 
-Open **play.sdp** using VLC before RTPServer runs.
+## 🧹 Limpeza
 
-## RTP封装H.264码流规范
-本文简单说明RTP结构和实现，详细说明请参考标准文档[RTF6184: RTP Payload Format for H.264 Video](https://tools.ietf.org/html/rfc6184)。
-### RTP Header
+Para remover os arquivos compilados temporários (`.o`) e o binário executável gerado:
 
+```bash
+cd RTP-Server
+make clean
 ```
-     0                   1                   2                   3
-     0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
-    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-    |V=2|P|X|  CC   |M|     PT      |       sequence number         |
-    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-    |                           timestamp                           |
-    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-    |           synchronization source (SSRC) identifier            |
-    +=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
-    |            contributing source (CSRC) identifiers             |
-    :                             ....                              :
-    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-```
-
-- V(version): 当前版本设为2。
-- P(padding): 载荷之后填充数据，用于要求固定长度RTP包场景，一般不用，设置为0。
-- X(extension): 固定头部后面加头部扩展字段标志，一般不用，设为0。
-- CC(CSRC count): CSRC字段长度
-- M(marker): AU最后一个包标志位
-- PT(payload): RTP载荷媒体数据类型，H264=96
-- Sequence number: RTP包序列号，递增1。
-- timestamp: 媒体采样时间戳，H264/HEVC统一采用90kHz采样时钟，如果使用帧率fps来设置时间戳，则递增数值为90000/fps。
-- SSRC: 数据包同源标志，来自同一处的RTP包应采用固定统一数值。
-- CSRC: 一般CC=0，不用此位。
-
-### RTP Payload
-RTP Packet = RTP Header + RTP payload.
-
-RTP Payload结构一般分为3种：
-1. 单NALU分组(Single NAL Unit Packet): 一个分组只包含一个NALU。
-2. 聚合分组(Aggregation Packet): 一个分组包含多个NALU。
-3. 分片分组(Fragmentation Unit)：一个比较长的NALU分在多个RTP包中。
-
-各种RTP分组在RTP Header后面都跟着 `F|NRI|Type` 结构的NALU Header来判定分组类型。不同分组类型此字段名字可能不同，H264/HEVC原始视频流NALU也包含此结构的头部字段。
-
-```
-    +---------------+
-    |0|1|2|3|4|5|6|7|
-    +-+-+-+-+-+-+-+-+
-    |F|NRI|  Type   |
-    +---------------+
-```
-- F(forbidden_zero_bit)：错误位或语法冲突标志，一般设为0。
-- NRI(nal_ref_idc): 与H264编码规范相同，此处可以直接使用原始码流NRI值。
-- Type：RTP载荷类型，1-23：H264编码规定的数据类型，单NALU分组直接使用此值，24-27:聚合分组类型(聚合分组一般使用24 STAP-A)，28-29分片分组类型（分片分组一般使用28FU-A），30-31，0保留。
-
-NAL Unit Type| Packet Type |  Packet Type Name
----|---|---|
-0 | reserved | -
-1-23 | NAL unit | Single NAL unit packet
-24 | STAP-A | Single-time aggregation packet
-25 | STAP-B | Single-time aggregation packet
-26 | MTAP16 | Multi-time aggregation packet
-27 | MTAP24 | Multi-time aggregation packet
-28 | FU-A | Fragmentation unit
-29 | FU-B | Fragmentation unit
-30-31 | reserved |  -
-
-
-#### 单NALU分组
-此结构的NALU Header结构可以直接使用原始码流NALU Header，所以单NALU分组Type = 1~23。
-封装RTP包的时候可以直接把 查询到的NALU去掉起始码后的部分 当作单NALU分组的RTP包Payload部分。
-
-```
-     0                   1                   2                   3
-     0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
-    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-    |                          RTP Header                           |
-    :                                                               :
-    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-    |F|NRI|  Type   |                                               |
-    +-+-+-+-+-+-+-+-+                                               |
-    |                                                               |
-    |               Bytes 2..n of a single NAL unit                 |
-    |                                                               |
-    |                               +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-    |                               :...OPTIONAL RTP padding        |
-    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-
-```
-
-#### 聚合分组
-通常采用STAP-A (Type=24)结构封装RTP聚合分组，下图为包含2个NALU的采用STAP-A结构的聚合分组。
-
-```
-     0                   1                   2                   3
-     0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
-    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-    |                            RTP Header                         |
-    :                                                               :
-    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-    |STAP-A NAL HDR |         NALU 1 Size           | NALU 1 HDR    |
-    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-    |                         NALU 1 Data                           |
-    :                                                               :
-    +               +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-    |               | NALU 2 Size                   | NALU 2 HDR    |
-    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-    |                         NALU 2 Data                           |
-    :                                                               :
-    |                               +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-    |                               :...OPTIONAL RTP padding        |
-    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-```
-
-
-- STAP-A NAL HDR: 也是一个NALU Header (**F**|**NRI**|**Type**)结构，1字节。比如可能值为0x18=00011000b，Type=11000b=24，即为STAP-A。所有聚合NALU的F只要有一个为1则设为1，NRI取所有NALU的NRI最大值。
-- NALU Size: 表示此原始码流NALU长度，2字节。
-- NALU HDR + NALU Date: 即为原始码流一个完整NALU。
-
-#### 分片分组
-
-通常采用无DON字段的FU-A结构封装RTP分片分组。各种RTP分组在RTP Header后面都跟着 `F|NRI|Type` 结构，来判定分组类型。
-
-```
-     0                   1                   2                   3
-     0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
-    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-    |                            RTP Header                         |
-    :                                                               :
-    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-    | FU indicator  |   FU header   |                               |
-    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+                               |
-    |                                                               |
-    |                         FU payload                            |
-    |                                                               |
-    |                               +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-    |                               :...OPTIONAL RTP padding        |
-    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-```
-
-##### FU indicator
-采用FU-A分组类型的话Type = 28，NRI与此NALU中NRI字段相同。
-
-```
-    +---------------+
-    |0|1|2|3|4|5|6|7|
-    +-+-+-+-+-+-+-+-+
-    |F|NRI|  Type   |
-    +---------------+
-```
-
-##### FU header
-
-```
-    +---------------+
-    |0|1|2|3|4|5|6|7|
-    +-+-+-+-+-+-+-+-+
-    |S|E|R|  Type   |
-    +---------------+
-```
-
-此结构中Type采用原始码流NALU中的Type字段，S=1表示这个RTP包为分片分组第一个分片，E=1表示为分片分组最后一个分片。除了首尾分片，中间的分片S&E都设为0。R为保留位，设为0。
-
-本文发表在CSDN [RTP协议介绍以及C语言实现具有发送H.264视频功能的RTP服务器](https://blog.csdn.net/shaosunrise/article/details/80374523)。
