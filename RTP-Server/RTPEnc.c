@@ -1,6 +1,3 @@
-//
-// Created by Liming Shao on 2018/5/10.
-//
 
 #include <stdint.h>
 #include <string.h>
@@ -17,39 +14,29 @@
 
 static UDPContext *gUdpContext;
 
-
-int initRTPMuxContext(RTPMuxContext *ctx){
-    ctx->seq = 0;
-    ctx->timestamp = 0;
-    ctx->ssrc = 0x12345678; // random number
-    ctx->aggregation = 1;   // use Aggregation Unit
+//Configuração inicial
+int initRTPMuxContext(RTPMuxContext *ctx){ 
+    //Define o Número de Sequência inicial como 0, 
+    // para que o cliente saiba a ordem correta dos pacotes desde o começo
+    ctx->seq = 0; // 
+    ctx->timestamp = 0; // Zera a Marca de Tempo, que será usada para sincronizar o vídeo a 25 frames por segundo.
+    ctx->ssrc = 0x12345678; // Atribui um Identificador de Fonte, para que o player saiba que todos os pacotes vêm da mesma origem.
+    ctx->aggregation = 1;   // Ativa a Agregação de pacotes, permitindo que vários quadros pequenos sejam enviados juntos para economizar recursos de rede.
+    // Inicializa o ponteiro de memória, preparando o local onde os dados do vídeo serão armazenados temporariamente antes do envio.
     ctx->buf_ptr = ctx->buf;
     ctx->payload_type = 0;  // 0, H.264/AVC; 1, HEVC/H.265
     return 0;
 }
 
-// enc RTP packet
-void rtpSendData(RTPMuxContext *ctx, const uint8_t *buf, int len, int mark)
-{
-    int res = 0;
+// Encapsulamento RTP
+// Monta o cabeçalho de 12 bytes exigido pelo protocolo, com versao, tipo de video, tempo, sequencia. 
+// Anexa os dados do video no buffer de saida.
+// Segurança, 
+// Despacha pacote via UDP
+// Incrementa o numero de sequencia para o proximo envio
 
-    /* build the RTP header */
-    /*
-     *
-     *    0                   1                   2                   3
-     *    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
-     *   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-     *   |V=2|P|X|  CC   |M|     PT      |       sequence number         |
-     *   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-     *   |                           timestamp                           |
-     *   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-     *   |           synchronization source (SSRC) identifier            |
-     *   +=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
-     *   |            contributing source (CSRC) identifiers             |
-     *   :                             ....                              :
-     *   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-     *
-     **/
+void rtpSendData(RTPMuxContext *ctx, const uint8_t *buf, int len, int mark){
+    int res = 0;
 
     uint8_t *pos = ctx->cache;
     pos[0] = (RTP_VERSION << 6) & 0xff;      // V P X CC
@@ -61,12 +48,14 @@ void rtpSendData(RTPMuxContext *ctx, const uint8_t *buf, int len, int mark)
     /* copy av data */
     memcpy(&pos[12], buf, len);
 
-                // ADICIONAR ESTA LÓGICA DE SEGURANÇA:
-                // Exemplo de XOR simples (em produção, use AES-CTR via libsrtp)
-                // uint8_t key = 0xAB; // Chave secreta de exemplo
-                // for(int i = 0; i < len; i++) {
-                //     pos[12 + i] ^= key; // Criptografia básica do payload
-                // }
+    // ADICIONAR ESTA LÓGICA DE SEGURANÇA:
+    // Exemplo de XOR simples 
+    // começa no byte 12, protegendo apenas o vídeo e 
+    // mantendo o cabeçalho de rede legível para os roteadores.
+    // uint8_t key = 0xAB; // Chave secreta de exemplo
+    // for(int i = 0; i < len; i++) {
+    //     pos[12 + i] ^= key; // Criptografia básica do payload
+    // }
 
     res = udpSend(gUdpContext, ctx->cache, (uint32_t)(len + 12));
     printf("\nrtpSendData cache [%d]: ", res);
@@ -81,6 +70,8 @@ void rtpSendData(RTPMuxContext *ctx, const uint8_t *buf, int len, int mark)
 
     ctx->seq = (ctx->seq + 1) & 0xffff;
 }
+
+
 
 // 拼接NAL头部 在 ctx->buff, 然后ff_rtp_send_data
 static void rtpSendNAL(RTPMuxContext *ctx, const uint8_t *nal, int size, int last){
