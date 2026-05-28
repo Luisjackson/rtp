@@ -10,7 +10,7 @@ int main() {
   int res;
   int len = 0;
   uint8_t *stream = NULL;
-  const char *fileName = "../Sample.h264";
+  const char *fileName = "../Sample2.h264";
 
   RTPMuxContext rtpMuxContext;
   UDPContext udpContext = {

@@ -218,9 +218,9 @@ void rtpSendH264HEVC(RTPMuxContext *ctx, UDPContext *udp, const uint8_t *buf, in
         rtpSendNAL(ctx, r, (int)(r1-r), r1==end);
 
         // control transmission speed
-        usleep(1000000/25);
+        usleep(1000000/60);
         // suppose the frame rate is 25 fps
-        ctx->timestamp += (90000.0/25);
+        ctx->timestamp += (90000.0/60);
         r = r1;
     }
 }
